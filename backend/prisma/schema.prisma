@@ -1,0 +1,387 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  STUDENT
+  FACULTY
+  HOD
+  LAB
+  ADMIN
+  PARENT
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  ON_DUTY
+  LEAVE
+}
+
+enum AttendanceMethod {
+  MANUAL
+  QR
+  FACE
+  RFID
+  GEO
+  BIOMETRIC
+}
+
+enum SessionStatus {
+  LIVE
+  SCHEDULED
+  COMPLETED
+}
+
+enum LeaveType {
+  MEDICAL
+  CASUAL
+  ON_DUTY
+  OTHER
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ProjectTag {
+  CAPSTONE
+  RESEARCH
+  SPONSORED
+}
+
+enum InternshipStage {
+  APPLIED
+  OFFER
+  ONGOING
+  COMPLETED
+}
+
+enum CorrectionType {
+  ATTENDANCE_CORRECTION
+  LEAVE
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  role         Role
+  name         String
+  avatarSeed   Int      @default(1)
+  phone        String?
+  mfaEnabled   Boolean  @default(true)
+  pushEnabled  Boolean  @default(true)
+  smsEnabled   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  student  StudentProfile?
+  faculty  FacultyProfile?
+
+  markedAttendance     AttendanceRecord[] @relation("MarkedBy")
+  notifications        Notification[]
+  devices              DeviceSession[]
+  auditLogs            AuditLog[]
+  approvedRequests     ApprovalRequest[]  @relation("ApprovedBy")
+  parentLinksAsParent  ParentLink[]       @relation("ParentUser")
+
+  @@index([role])
+}
+
+model ParentLink {
+  id            String  @id @default(cuid())
+  parentUserId  String
+  studentId     String
+  parentUser    User    @relation("ParentUser", fields: [parentUserId], references: [id])
+  student       StudentProfile @relation(fields: [studentId], references: [id])
+
+  @@unique([parentUserId, studentId])
+}
+
+model StudentProfile {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rollNo      String   @unique
+  batch       String
+  semester    Int
+  avatarSeed  Int      @default(1)
+
+  enrollments        Enrollment[]
+  attendanceRecords  AttendanceRecord[]
+  labAttendances     StudentLabAttendance[]
+  leadProjects       Project[]              @relation("ProjectLead")
+  projectMemberships ProjectMember[]
+  internships        Internship[]
+  placement          Placement?
+  leaveRequests      LeaveRequest[]
+  correctionRequests CorrectionRequest[]
+  approvalRequests   ApprovalRequest[]
+  parentLinks        ParentLink[]
+}
+
+model FacultyProfile {
+  id          String  @id @default(cuid())
+  userId      String  @unique
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  designation String
+  department  String  @default("VLSI")
+  avatarSeed  Int     @default(1)
+
+  sessions      ClassSession[]
+  labsTaught    Lab[]
+  timetableSlots TimetableSlot[]
+}
+
+model Course {
+  id       String @id @default(cuid())
+  code     String @unique
+  name     String
+  semester Int
+
+  enrollments     Enrollment[]
+  sessions        ClassSession[]
+  timetableSlots  TimetableSlot[]
+  labs            Lab[]
+}
+
+model Enrollment {
+  id        String         @id @default(cuid())
+  studentId String
+  courseId  String
+  student   StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  course    Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, courseId])
+}
+
+model ClassSession {
+  id          String        @id @default(cuid())
+  courseId    String
+  course      Course        @relation(fields: [courseId], references: [id])
+  facultyId   String?
+  faculty     FacultyProfile? @relation(fields: [facultyId], references: [id])
+  room        String
+  date        DateTime
+  startTime   String
+  endTime     String
+  status      SessionStatus @default(SCHEDULED)
+  locked      Boolean       @default(false)
+
+  attendance  AttendanceRecord[]
+}
+
+model AttendanceRecord {
+  id         String           @id @default(cuid())
+  sessionId  String
+  session    ClassSession     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  studentId  String
+  student    StudentProfile   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  status     AttendanceStatus
+  method     AttendanceMethod @default(MANUAL)
+  markedAt   DateTime         @default(now())
+  markedById String?
+  markedBy   User?            @relation("MarkedBy", fields: [markedById], references: [id])
+
+  @@unique([sessionId, studentId])
+}
+
+model Lab {
+  id           String  @id @default(cuid())
+  name         String
+  courseId     String
+  course       Course  @relation(fields: [courseId], references: [id])
+  instructorId String?
+  instructor   FacultyProfile? @relation(fields: [instructorId], references: [id])
+  seats        Int
+  imageKey     String  @default("circuit")
+
+  sessions StudentLabAttendance[]
+  labSessions LabSession[]
+}
+
+model LabSession {
+  id        String        @id @default(cuid())
+  labId     String
+  lab       Lab           @relation(fields: [labId], references: [id], onDelete: Cascade)
+  date      DateTime      @default(now())
+  status    SessionStatus @default(SCHEDULED)
+
+  attendances StudentLabAttendance[]
+}
+
+model StudentLabAttendance {
+  id           String           @id @default(cuid())
+  labSessionId String
+  labSession   LabSession       @relation(fields: [labSessionId], references: [id], onDelete: Cascade)
+  labId        String
+  lab          Lab              @relation(fields: [labId], references: [id])
+  studentId    String
+  student      StudentProfile   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  status       AttendanceStatus @default(PRESENT)
+
+  @@unique([labSessionId, studentId])
+}
+
+model Project {
+  id        String     @id @default(cuid())
+  title     String
+  leadId    String
+  lead      StudentProfile @relation("ProjectLead", fields: [leadId], references: [id])
+  stage     String
+  progress  Int        @default(0)
+  tag       ProjectTag
+  dueDate   DateTime
+  imageKey  String     @default("code")
+  createdAt DateTime   @default(now())
+
+  members ProjectMember[]
+}
+
+model ProjectMember {
+  id        String         @id @default(cuid())
+  projectId String
+  project   Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  studentId String
+  student   StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, studentId])
+}
+
+model Company {
+  id     String @id @default(cuid())
+  name   String @unique
+  color  String @default("#4263FF")
+  ctcTop String
+
+  internships Internship[]
+  placements  Placement[]
+}
+
+model Internship {
+  id        String          @id @default(cuid())
+  studentId String
+  student   StudentProfile  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  companyId String
+  company   Company         @relation(fields: [companyId], references: [id])
+  role      String
+  stipend   String
+  stage     InternshipStage @default(APPLIED)
+  mentor    String?
+  createdAt DateTime        @default(now())
+}
+
+model Placement {
+  id        String   @id @default(cuid())
+  studentId String   @unique
+  student   StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  ctc       String
+  role      String
+  year      Int      @default(2025)
+}
+
+model LeaveRequest {
+  id          String        @id @default(cuid())
+  studentId   String
+  student     StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  type        LeaveType
+  fromDate    DateTime
+  toDate      DateTime
+  days        Int
+  hasDocument Boolean       @default(false)
+  documentUrl String?
+  status      RequestStatus @default(PENDING)
+  createdAt   DateTime      @default(now())
+
+  steps LeaveApprovalStep[]
+}
+
+model LeaveApprovalStep {
+  id             String       @id @default(cuid())
+  leaveRequestId String
+  leaveRequest   LeaveRequest @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
+  name           String
+  order          Int
+  done           Boolean      @default(false)
+  actedAt        DateTime?
+}
+
+model CorrectionRequest {
+  id        String        @id @default(cuid())
+  studentId String
+  student   StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  detail    String
+  status    RequestStatus @default(PENDING)
+  createdAt DateTime      @default(now())
+}
+
+model ApprovalRequest {
+  id           String         @id @default(cuid())
+  studentId    String
+  student      StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  type         CorrectionType
+  detail       String
+  status       RequestStatus  @default(PENDING)
+  createdAt    DateTime       @default(now())
+  approvedById String?
+  approvedBy   User?          @relation("ApprovedBy", fields: [approvedById], references: [id])
+}
+
+model TimetableSlot {
+  id        String          @id @default(cuid())
+  day       String
+  rowIndex  Int
+  courseId  String
+  course    Course          @relation(fields: [courseId], references: [id])
+  facultyId String?
+  faculty   FacultyProfile? @relation(fields: [facultyId], references: [id])
+  room      String
+  colorTag  String          @default("blue")
+
+  @@unique([day, rowIndex])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model DeviceSession {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceName   String
+  location     String
+  refreshToken String   @unique
+  current      Boolean  @default(false)
+  lastActiveAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id])
+  action     String
+  targetType String?
+  targetId   String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+}
