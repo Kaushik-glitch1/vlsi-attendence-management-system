@@ -20,18 +20,19 @@ const auditRoutes = require("./routes/audit");
 
 const app = express();
 
-// Known deployed frontends, kept as a fallback alongside CORS_ORIGIN so the
-// API doesn't go dark if the env var on the host is ever blank or stale.
-const KNOWN_ORIGINS = [
-  "http://localhost:5173",
-  "https://vlisiams.netlify.app",
-  "https://vlsi-attendence-management-system.vercel.app",
-];
-const allowedOrigins = [...new Set([...(process.env.CORS_ORIGIN?.split(",") || []), ...KNOWN_ORIGINS])];
+// Allows any Netlify/Vercel preview or production subdomain plus localhost,
+// alongside CORS_ORIGIN, so renaming the frontend site never breaks the API.
+const STATIC_ORIGINS = new Set(["http://localhost:5173", ...(process.env.CORS_ORIGIN?.split(",") || [])]);
+const HOSTED_FRONTEND_PATTERN = /^https:\/\/[a-z0-9-]+\.(netlify\.app|vercel\.app)$/i;
 
 app.use(
   cors({
-    origin: allowedOrigins,
+    origin(origin, callback) {
+      if (!origin || STATIC_ORIGINS.has(origin) || HOSTED_FRONTEND_PATTERN.test(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error("Not allowed by CORS"));
+    },
     credentials: true,
   })
 );
