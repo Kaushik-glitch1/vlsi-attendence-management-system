@@ -20,9 +20,18 @@ const auditRoutes = require("./routes/audit");
 
 const app = express();
 
+// Known deployed frontends, kept as a fallback alongside CORS_ORIGIN so the
+// API doesn't go dark if the env var on the host is ever blank or stale.
+const KNOWN_ORIGINS = [
+  "http://localhost:5173",
+  "https://vlisiams.netlify.app",
+  "https://vlsi-attendence-management-system.vercel.app",
+];
+const allowedOrigins = [...new Set([...(process.env.CORS_ORIGIN?.split(",") || []), ...KNOWN_ORIGINS])];
+
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN?.split(",") || "http://localhost:5173",
+    origin: allowedOrigins,
     credentials: true,
   })
 );
